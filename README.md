@@ -110,16 +110,67 @@ npm install
 Copy the example environment file to create your own configuration:
 
 ```bash
+cd application
 cp env-example .env
 ```
 
 The `.env` file contains all the configuration settings for your application. The default values will work for basic local development, but you'll need to update them for additional features like email, file storage, and payments.
 
-### Step 3: Set Up Your Database
+### Step 3: Set Up Your Development Environment
 
-#### Option A: Use Docker for PostgreSQL (Recommended for Development)
+You have three options for local development:
 
-If you prefer using Docker for your database, follow these steps:
+#### Option A: Use DevContainer (Recommended - All Services Pre-configured)
+
+The easiest way to get started is using the included DevContainer setup, which provides PostgreSQL and MinIO (S3-compatible storage) automatically configured and ready to use.
+
+**Prerequisites:**
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+- VS Code or Cursor with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) installed
+
+**Steps:**
+
+1. **Update your `.env` file with DevContainer-specific values:**
+   ```bash
+   # Database - use service name, not localhost
+   DATABASE_URL=postgresql://postgres:password@postgres:5432/app
+   
+   # Storage - use local RustFS/MinIO
+   STORAGE_PROVIDER=Spaces
+   SPACES_KEY_ID=rustfsadmin
+   SPACES_SECRET_KEY=rustfsadmin
+   SPACES_BUCKET_NAME=seanotes-local
+   SPACES_ENDPOINT=http://minio:9000
+   SPACES_FORCE_PATH_STYLE=true
+   SPACES_REGION=us-east-1
+   ```
+
+2. **Open in DevContainer:**
+   - Open the project folder in VS Code/Cursor
+   - Run Command Palette → **"Dev Containers: Open Folder in Container..."**
+   - Wait for the container to build and start (first time may take a few minutes)
+
+3. **Initialize the database:**
+   ```bash
+   npx prisma generate
+   npx prisma migrate deploy
+   ```
+
+4. **Start the development server:**
+   ```bash
+   npm run dev
+   ```
+
+The DevContainer automatically provides:
+- PostgreSQL database (accessible at `postgres:5432`)
+- MinIO/RustFS for S3-compatible storage (accessible at `minio:9000`)
+- All required tools and dependencies pre-installed
+
+> **Note:** For more details on the DevContainer setup, see [`.devcontainer/README.md`](.devcontainer/README.md)
+
+#### Option B: Use Docker Compose for PostgreSQL (Manual Setup)
+
+If you prefer using Docker Compose for just the database (without the full DevContainer), follow these steps:
 
 1. **Install Docker**
 
@@ -128,7 +179,7 @@ If you prefer using Docker for your database, follow these steps:
 
 2. **Start the PostgreSQL Container**
 
-   From the project root, run:
+   From the application directory, run:
 
    ```bash
    cd application
@@ -141,11 +192,11 @@ If you prefer using Docker for your database, follow these steps:
    - Password: `postgres`
    - Port: `5432`
 
-   The Docker Compose configuration already includes these sensible defaults, so no changes are needed to the database configuration in your `.env` file for basic setup.
+   The Docker Compose configuration already includes these sensible defaults, so your `.env` file should already have the correct `DATABASE_URL` from the `env-example` file.
 
    ![alt text](docs/images/docker_desktop_containers_view.png)
 
-#### Option B: Use an Existing Cloud Database (e.g., DigitalOcean)
+#### Option C: Use an Existing Cloud Database (e.g., DigitalOcean)
 
 If you already have a PostgreSQL database hosted in the cloud, you can use that instead:
 
@@ -167,7 +218,7 @@ If you already have a PostgreSQL database hosted in the cloud, you can use that 
 
 ### Step 4: Initialize Your Database
 
-With your database set up (either Docker or cloud), initialize the database tables:
+With your database set up (using any of the options above), initialize the database tables:
 
 ```bash
 npx prisma generate
