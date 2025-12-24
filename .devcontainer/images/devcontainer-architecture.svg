@@ -1,0 +1,155 @@
+<svg viewBox="0 0 1200 900" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .title { font-family: Arial, sans-serif; font-size: 24px; font-weight: bold; fill: #1a1a1a; }
+      .subtitle { font-family: Arial, sans-serif; font-size: 14px; fill: #666; }
+      .label { font-family: Arial, sans-serif; font-size: 13px; fill: #1a1a1a; }
+      .small-label { font-family: Arial, sans-serif; font-size: 11px; fill: #555; }
+      .service-box { fill: #ffffff; stroke: #2196F3; stroke-width: 2; rx: 8; }
+      .backing-service { fill: #f5f5f5; stroke: #666; stroke-width: 1.5; rx: 6; }
+      .vscode-box { fill: #007ACC; stroke: #005a9e; stroke-width: 2; rx: 8; }
+      .network-box { fill: none; stroke: #9C27B0; stroke-width: 2; stroke-dasharray: 5,5; rx: 10; }
+      .volume-box { fill: #FFF3E0; stroke: #FF9800; stroke-width: 1.5; rx: 6; }
+      .connection { stroke: #999; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .volume-connection { stroke: #FF9800; stroke-width: 1.5; fill: none; stroke-dasharray: 3,3; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#999" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="600" y="35" class="title" text-anchor="middle">DigitalOcean App Platform - Dev Environment</text>
+  <text x="600" y="55" class="subtitle" text-anchor="middle">Docker Compose + DevContainer Configuration</text>
+
+  <!-- VS Code (Developer Machine) -->
+  <rect class="vscode-box" x="50" y="100" width="200" height="80"/>
+  <text x="150" y="130" class="label" text-anchor="middle" fill="white" font-weight="bold">VS Code</text>
+  <text x="150" y="150" class="small-label" text-anchor="middle" fill="white">Developer Machine</text>
+  <text x="150" y="165" class="small-label" text-anchor="middle" fill="white">Extensions: Claude Code,</text>
+  <text x="150" y="178" class="small-label" text-anchor="middle" fill="white">ChatGPT, Docker</text>
+
+  <!-- Connection from VS Code to App Container -->
+  <path class="connection" d="M 250 140 L 340 140"/>
+  <text x="295" y="135" class="small-label" text-anchor="middle">Remote</text>
+
+  <!-- Network Box -->
+  <rect class="network-box" x="330" y="85" width="830" height="590"/>
+  <text x="745" y="110" class="subtitle" text-anchor="middle">devcontainer-network (bridge)</text>
+
+  <!-- Main App Container -->
+  <rect class="service-box" x="350" y="130" width="280" height="220"/>
+  <text x="490" y="160" class="label" text-anchor="middle" font-weight="bold">App Container</text>
+  <text x="490" y="178" class="small-label" text-anchor="middle">mcr.microsoft.com/devcontainers/base:noble</text>
+  
+  <!-- Features/Tools in App Container -->
+  <rect fill="#E3F2FD" stroke="#2196F3" stroke-width="1" x="365" y="195" width="250" height="140" rx="4"/>
+  <text x="490" y="215" class="small-label" text-anchor="middle" font-weight="bold">Installed Features:</text>
+  <text x="375" y="235" class="small-label">• Node.js + npm</text>
+  <text x="375" y="253" class="small-label">• Python + uv</text>
+  <text x="375" y="271" class="small-label">• GitHub CLI (gh)</text>
+  <text x="375" y="289" class="small-label">• DigitalOcean CLI (doctl)</text>
+  <text x="375" y="307" class="small-label">• Claude Code</text>
+  <text x="375" y="325" class="small-label">• Codex</text>
+
+  <!-- Volumes for App Container -->
+  <rect class="volume-box" x="350" y="370" width="130" height="60"/>
+  <text x="415" y="390" class="small-label" text-anchor="middle" font-weight="bold">Volumes</text>
+  <text x="415" y="406" class="small-label" text-anchor="middle">app-config</text>
+  <text x="415" y="420" class="small-label" text-anchor="middle">claude-config</text>
+
+  <rect class="volume-box" x="500" y="370" width="130" height="60"/>
+  <text x="565" y="390" class="small-label" text-anchor="middle" font-weight="bold">Mounts</text>
+  <text x="565" y="406" class="small-label" text-anchor="middle">../workspaces/app</text>
+  <text x="565" y="420" class="small-label" text-anchor="middle">/var/run/docker.sock</text>
+
+  <!-- Volume connections -->
+  <path class="volume-connection" d="M 415 370 L 415 350"/>
+  <path class="volume-connection" d="M 565 370 L 565 350"/>
+
+  <!-- Active Backing Services (based on COMPOSE_PROFILES) -->
+  <text x="850" y="160" class="label" text-anchor="middle" font-weight="bold">Active Services</text>
+  <text x="850" y="178" class="small-label" text-anchor="middle">(COMPOSE_PROFILES: app,postgres,minio [RustFS])</text>
+
+  <!-- PostgreSQL -->
+  <rect class="backing-service" x="690" y="200" width="140" height="90"/>
+  <text x="760" y="225" class="label" text-anchor="middle" font-weight="bold">PostgreSQL 18</text>
+  <text x="760" y="243" class="small-label" text-anchor="middle">Port: 5432</text>
+  <text x="760" y="258" class="small-label" text-anchor="middle">User: postgres</text>
+  <text x="760" y="273" class="small-label" text-anchor="middle">DB: app</text>
+  <rect class="volume-box" x="705" y="295" width="110" height="25"/>
+  <text x="760" y="312" class="small-label" text-anchor="middle">postgres-data</text>
+
+  <!-- RustFS (S3-compatible, profile: minio) -->
+  <rect class="backing-service" x="870" y="200" width="140" height="90"/>
+  <text x="940" y="225" class="label" text-anchor="middle" font-weight="bold">RustFS</text>
+  <text x="940" y="243" class="small-label" text-anchor="middle">API: 9000</text>
+  <text x="940" y="258" class="small-label" text-anchor="middle">Console: 9001</text>
+  <text x="940" y="273" class="small-label" text-anchor="middle">S3-compatible</text>
+  <rect class="volume-box" x="885" y="295" width="110" height="25"/>
+  <text x="940" y="312" class="small-label" text-anchor="middle">minio-data</text>
+
+  <!-- Connections from App to Active Services -->
+  <path class="connection" d="M 630 240 L 690 240"/>
+  <path class="connection" d="M 630 245 L 870 245"/>
+
+  <!-- Available Services (Profiles) -->
+  <text x="850" y="375" class="label" text-anchor="middle" font-weight="bold">Available Services (via Profiles)</text>
+  
+  <!-- MongoDB -->
+  <rect class="backing-service" x="670" y="395" width="110" height="70"/>
+  <text x="725" y="420" class="small-label" text-anchor="middle" font-weight="bold">MongoDB 8</text>
+  <text x="725" y="437" class="small-label" text-anchor="middle">Port: 27017</text>
+  <text x="725" y="452" class="small-label" text-anchor="middle">Profile: mongo</text>
+
+  <!-- MySQL -->
+  <rect class="backing-service" x="795" y="395" width="110" height="70"/>
+  <text x="850" y="420" class="small-label" text-anchor="middle" font-weight="bold">MySQL 8</text>
+  <text x="850" y="437" class="small-label" text-anchor="middle">Port: 3306</text>
+  <text x="850" y="452" class="small-label" text-anchor="middle">Profile: mysql</text>
+
+  <!-- Valkey -->
+  <rect class="backing-service" x="920" y="395" width="110" height="70"/>
+  <text x="975" y="420" class="small-label" text-anchor="middle" font-weight="bold">Valkey 8</text>
+  <text x="975" y="437" class="small-label" text-anchor="middle">Port: 6379</text>
+  <text x="975" y="452" class="small-label" text-anchor="middle">Profile: valkey</text>
+
+  <!-- Kafka -->
+  <rect class="backing-service" x="670" y="480" width="110" height="70"/>
+  <text x="725" y="505" class="small-label" text-anchor="middle" font-weight="bold">Kafka 7.7</text>
+  <text x="725" y="522" class="small-label" text-anchor="middle">Port: 9092</text>
+  <text x="725" y="537" class="small-label" text-anchor="middle">Profile: kafka</text>
+
+  <!-- OpenSearch -->
+  <rect class="backing-service" x="795" y="480" width="110" height="70"/>
+  <text x="850" y="505" class="small-label" text-anchor="middle" font-weight="bold">OpenSearch 3</text>
+  <text x="850" y="522" class="small-label" text-anchor="middle">Ports: 9200/9300</text>
+  <text x="850" y="537" class="small-label" text-anchor="middle">Profile: opensearch</text>
+
+  <!-- OpenSearch Dashboards -->
+  <rect class="backing-service" x="920" y="480" width="110" height="70"/>
+  <text x="975" y="505" class="small-label" text-anchor="middle" font-weight="bold">Dashboards</text>
+  <text x="975" y="522" class="small-label" text-anchor="middle">Port: 5601</text>
+  <text x="975" y="537" class="small-label" text-anchor="middle">Profile: opensearch</text>
+
+  <!-- Dashed connections from App to Available Services -->
+  <path class="connection" stroke-dasharray="5,5" opacity="0.4" d="M 630 260 L 725 395"/>
+  <path class="connection" stroke-dasharray="5,5" opacity="0.4" d="M 630 270 L 850 395"/>
+  <path class="connection" stroke-dasharray="5,5" opacity="0.4" d="M 630 280 L 975 395"/>
+
+  <!-- Key/Legend -->
+  <rect fill="white" stroke="#ccc" stroke-width="1" x="50" y="720" width="1100" height="140" rx="8"/>
+  <text x="600" y="745" class="label" text-anchor="middle" font-weight="bold">Architecture Highlights</text>
+  
+  <text x="70" y="775" class="small-label" font-weight="bold">Features:</text>
+  <text x="70" y="795" class="small-label">• Profile-based service activation (change COMPOSE_PROFILES to enable/disable services)</text>
+  <text x="70" y="813" class="small-label">• Persistent volumes for data retention across container restarts</text>
+  <text x="70" y="831" class="small-label">• Credential persistence via named volumes (app-config, claude-config, codex-config)</text>
+  <text x="70" y="849" class="small-label">• Docker-outside-of-Docker for building images from within the container</text>
+  
+  <text x="650" y="775" class="small-label" font-weight="bold">Active Profiles:</text>
+  <text x="650" y="795" class="small-label">• app: Main development container</text>
+  <text x="650" y="813" class="small-label">• postgres: PostgreSQL database</text>
+  <text x="650" y="831" class="small-label">• minio: RustFS (S3-compatible storage)</text>
+  <text x="650" y="849" class="small-label">(Add mongo, mysql, valkey, kafka, opensearch as needed)</text>
+</svg>

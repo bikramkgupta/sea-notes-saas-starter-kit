@@ -4,6 +4,8 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   ListObjectsV2Command,
+  CreateBucketCommand,
+  HeadBucketCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { StorageService } from './storage';
@@ -39,6 +41,41 @@ export class SpacesStorageService extends StorageService {
   }
 
   /**
+   * Detects if the configured endpoint is a local MinIO/RustFS instance.
+   * Local endpoints use http://, localhost, minio, or 127.0.0.1.
+   */
+  private isLocalMinIOEndpoint(): boolean {
+    const endpoint = serverConfig.Spaces.SPACES_ENDPOINT || '';
+    return (
+      endpoint.startsWith('http://') ||
+      endpoint.includes('localhost') ||
+      endpoint.includes('minio') ||
+      endpoint.includes('127.0.0.1')
+    );
+  }
+
+  /**
+   * Creates the bucket if it doesn't exist (local MinIO/RustFS only).
+   * For production (DO Spaces), buckets must be created manually.
+   */
+  private async createBucket(): Promise<boolean> {
+    if (!this.client) return false;
+
+    try {
+      await this.client.send(new CreateBucketCommand({ Bucket: this.bucketName }));
+      console.log(`Bucket "${this.bucketName}" created successfully.`);
+      return true;
+    } catch (error: any) {
+      // Bucket already exists - that's fine
+      if (error.name === 'BucketAlreadyOwnedByYou' || error.name === 'BucketAlreadyExists') {
+        return true;
+      }
+      console.error('Failed to create bucket:', error.message);
+      return false;
+    }
+  }
+
+  /**
    * Initializes the S3 client based on the configuration.
    * Sets isConfigured flag and configError message if applicable.
    */
@@ -47,8 +84,16 @@ export class SpacesStorageService extends StorageService {
     const accessKeyId = serverConfig.Spaces.SPACES_KEY_ID;
     const secretAccessKey = serverConfig.Spaces.SPACES_SECRET_KEY;
     const bucketName = serverConfig.Spaces.SPACES_BUCKET_NAME;
-    const region = serverConfig.Spaces.SPACES_REGION;
-      const endpoint = `https://${region}.digitaloceanspaces.com`;
+    const region = serverConfig.Spaces.SPACES_REGION || 'us-east-1';
+      
+      // Use custom endpoint if provided, otherwise use default DO Spaces endpoint
+      const endpoint = serverConfig.Spaces.SPACES_ENDPOINT 
+        || `https://${region}.digitaloceanspaces.com`;
+      
+      // Auto-detect path-style for local MinIO, or use explicit config
+      const forcePathStyle = serverConfig.Spaces.SPACES_FORCE_PATH_STYLE !== undefined
+        ? serverConfig.Spaces.SPACES_FORCE_PATH_STYLE
+        : this.isLocalMinIOEndpoint();
 
       // Check for missing configuration
       const missingConfig = Object.entries(SpacesStorageService.requiredConfig)
@@ -62,7 +107,7 @@ export class SpacesStorageService extends StorageService {
       }
       this.bucketName = bucketName!; // Safe to use ! here since we checked for missing config above
       this.client = new S3Client({
-        forcePathStyle: false, // Configures to use subdomain/virtual calling format.
+        forcePathStyle, // true for MinIO, false for DO Spaces
         endpoint,
         region,
         credentials: {
@@ -132,7 +177,8 @@ export class SpacesStorageService extends StorageService {
 
   /**
    * Checks if the Spaces service is properly configured and accessible.
-   * Uses ListObjectsV2Command to verify bucket access and connectivity.
+   * Uses HeadBucketCommand to verify bucket access and connectivity.
+   * For local MinIO/RustFS, auto-creates the bucket if it doesn't exist.
    *
    * @returns {Promise<boolean>} True if the connection is successful, false otherwise.
    */
@@ -143,22 +189,29 @@ export class SpacesStorageService extends StorageService {
     }
 
     try {
-      // Test connection by listing objects (with limit 1) to verify access
-      const listCommand = new ListObjectsV2Command({
-        Bucket: this.bucketName,
-        MaxKeys: 1,
-      });
-      await this.client.send(listCommand);
+      // Try to access the bucket
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucketName }));
       return true;
-    } catch (listError) {
-      const listErrorMsg = listError instanceof Error ? listError.message : String(listError);
+    } catch (error: any) {
+      const bucketNotFound = error.name === 'NoSuchBucket' || error.name === 'NotFound';
 
+      // Only auto-create for local MinIO/RustFS endpoints
+      if (bucketNotFound && this.isLocalMinIOEndpoint()) {
+        console.log(`Bucket not found. Creating "${this.bucketName}"...`);
+        const created = await this.createBucket();
+        if (created) {
+          return true;  // Bucket created, connection successful
+        }
+      }
+
+      // For production (DO Spaces), show error - bucket must be created manually
+      const errorMsg = error instanceof Error ? error.message : String(error);
       console.error('Storage connection test failed:', {
-        listError: listErrorMsg,
+        error: errorMsg,
       });
 
       // Store the last error details for use in checkConfiguration
-      this.lastConnectionError = `Connection error: ${listErrorMsg}`;
+      this.lastConnectionError = `Connection error: ${errorMsg}`;
       return false;
     }
   }

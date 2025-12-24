@@ -1,0 +1,52 @@
+{
+  "name": "DigitalOcean App Platform Dev Environment",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/app",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {},
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers-extra/features/uv:1": {},
+    // "ghcr.io/devcontainers/features/go:1": {},
+    // "ghcr.io/devcontainers/features/rust:1": {},
+    // "ghcr.io/devcontainers/features/ruby:1": {}
+    // "ghcr.io/devcontainers/features/php:1": {},
+    "ghcr.io/devcontainers-extra/features/digitalocean-cli:1": {},
+    "ghcr.io/devcontainers/features/aws-cli:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+    // Script location: https://github.com/jsburckhardt/devcontainer-features/blob/main/src/codex/install.sh
+    "ghcr.io/jsburckhardt/devcontainer-features/codex:1": {},
+    //
+    // This is to make docker and docker compose available in the container without the overhead
+    // Useful when we need to build and run images from the container
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+      "moby": false,
+      "dockerDashComposeVersion": "v2"
+    }
+  },
+  "containerEnv": {
+    // Available inside the container to use with docker compose
+    // "COMPOSE_PROFILES": "postgres,mongo,mysql,valkey,kafka,minio,opensearch"
+    "COMPOSE_PROFILES": "app,postgres,minio"
+  },
+  "remoteEnv": {},
+  "initializeCommand": "cd \"${localWorkspaceFolder}\" && bash .devcontainer/init.sh",
+  "postCreateCommand": ".devcontainer/post-create.sh",
+  "remoteUser": "vscode",
+  "userEnvProbe": "loginInteractiveShell",
+  // "shutdownAction": Indicates whether devcontainer.json supporting tools should stop the containers when the related tool window is closed / shut down.
+  // Values are none, stopContainer (default for image or Dockerfile), and stopCompose (default for Docker Compose).
+  // Using stopCompose so containers automatically stop when the devcontainer window is closed.
+  // Use docker compose stop to stop and docker compose down to stop and remove the containers manually.
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-azuretools.vscode-docker",
+        "anthropic.claude-code",
+        "openai.chatgpt"
+      ]
+    }
+  }
+}

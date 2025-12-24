@@ -17,6 +17,8 @@ export interface ServerConfig {
     SPACES_SECRET_KEY?: string;
     SPACES_BUCKET_NAME?: string;
     SPACES_REGION?: string;
+    SPACES_ENDPOINT?: string;
+    SPACES_FORCE_PATH_STYLE?: boolean;
   };
   Resend: {
     apiKey?: string;
@@ -50,6 +52,8 @@ export const serverConfig: ServerConfig = {
     SPACES_SECRET_KEY: process.env.SPACES_SECRET_KEY,
     SPACES_BUCKET_NAME: process.env.SPACES_BUCKET_NAME,
     SPACES_REGION: process.env.SPACES_REGION,
+    SPACES_ENDPOINT: process.env.SPACES_ENDPOINT,
+    SPACES_FORCE_PATH_STYLE: process.env.SPACES_FORCE_PATH_STYLE === 'true',
   },
   Resend: {
     apiKey: process.env.RESEND_API_KEY,
