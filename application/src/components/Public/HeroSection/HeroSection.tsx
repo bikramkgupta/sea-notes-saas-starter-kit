@@ -56,7 +56,7 @@ const HeroSection = () => {
                 width: '100%'
               }}
             >
-              Build Your SaaS Faster Than Ever
+              Build Your SaaS Faster Than Ever [Hot Reload Test - Code Change]
             </Typography>
             <Typography 
               variant="h6" 
