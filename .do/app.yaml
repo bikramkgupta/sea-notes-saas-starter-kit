@@ -20,7 +20,7 @@ services:
       registry_type: GHCR
       registry: bikramkgupta
       repository: hot-reload-node
-      tag: latest
+      tag: v1.0.0
 
     instance_count: 1
     instance_size_slug: apps-s-1vcpu-2gb
