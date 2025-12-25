@@ -90,6 +90,11 @@ jobs:
     if: ${{ inputs.action == 'deploy' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Debug - Show selected action
+        run: |
+          echo "Selected action: ${{ inputs.action }}"
+          echo "App spec path: ${{ inputs.app_spec_path }}"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -110,8 +115,8 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
           app_spec_location: ${{ inputs.app_spec_path }}
-          print_build_logs: true
-          print_deploy_logs: true
+          print_build_logs: false
+          print_deploy_logs: false
 
       - name: Output deployment info
         run: |
@@ -144,6 +149,11 @@ jobs:
     if: ${{ inputs.action == 'delete' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Debug - Show selected action
+        run: |
+          echo "Selected action: ${{ inputs.action }}"
+          echo "App spec path: ${{ inputs.app_spec_path }}"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -183,6 +193,12 @@ jobs:
     if: ${{ inputs.action == 'env-vars' }}
     runs-on: ubuntu-latest
     steps:
+      - name: Debug - Show selected action
+        run: |
+          echo "Selected action: ${{ inputs.action }}"
+          echo "App spec path: ${{ inputs.app_spec_path }}"
+          echo "Include only env vars: ${{ inputs.include_only_env_vars }}"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -280,14 +296,12 @@ jobs:
           APP_ID="${{ steps.appid.outputs.app_id }}"
           COMPONENT_NAME="${{ steps.appinfo.outputs.component_name }}"
           INCLUDE_ONLY="${{ inputs.include_only_env_vars }}"
+          APP_NAME="${{ steps.appinfo.outputs.app_name }}"
 
           # System vars to exclude (infrastructure/platform vars)
           EXCLUDE_VARS="GITHUB_REPO_URL|GITHUB_TOKEN|GITHUB_BRANCH|GITHUB_SYNC_INTERVAL|WORKSPACE_PATH|DEV_START_COMMAND|APP_DIR|PRE_DEPLOY_COMMAND|PRE_DEPLOY_TIMEOUT|POST_DEPLOY_COMMAND|POST_DEPLOY_TIMEOUT|BASE_URL|APP_URL|APP_DOMAIN|APP_ID|COMMIT_HASH|PUBLIC_URL|ENABLE_DEV_HEALTH|DEV_HEALTH_PORT|WELCOME_PAGE_PORT|GITHUB_REPO_FOLDER"
 
-          # Extract env vars from spec, filter system vars, substitute secrets
           echo "Extracting environment variables from $SPEC_PATH..."
-
-          # If include_only is set, show which vars will be updated
           if [ -n "$INCLUDE_ONLY" ]; then
             echo "Filtering to only include: $INCLUDE_ONLY"
           else
@@ -295,9 +309,34 @@ jobs:
           fi
           echo ""
 
-          # Create .env content
+          # Read existing .env from container (for comparison)
+          echo "Reading existing environment variables from container..."
+          EXISTING_ENV=$(sandbox exec "$APP_ID" "$COMPONENT_NAME" "cat /workspaces/app/.env 2>/dev/null" || echo "")
+          if [ -n "$EXISTING_ENV" ]; then
+            echo "Found existing .env file in container"
+          else
+            echo "No existing .env file found (will create new)"
+          fi
+          echo ""
+
+          # Initialize tracking
           ENV_CONTENT=""
           VAR_COUNT=0
+          UPDATED_KEYS=""
+          UPDATED_PREV=""
+          UPDATED_NEW=""
+          UPDATED_SECRET=""
+          SKIPPED_SYSTEM=""
+          SKIPPED_EMPTY=""
+          SKIPPED_BINDABLE=""
+          SKIPPED_FILTER=""
+          SKIPPED_UNRESOLVED=""
+
+          # Helper function to get previous value
+          get_prev_value() {
+            local key="$1"
+            echo "$EXISTING_ENV" | grep "^$key=" | cut -d'=' -f2- || echo ""
+          }
 
           # Read each env var from the spec
           while IFS= read -r line; do
@@ -307,14 +346,15 @@ jobs:
             # Skip system vars
             if echo "$KEY" | grep -qE "^($EXCLUDE_VARS)$"; then
               echo "  Skipping system var: $KEY"
+              SKIPPED_SYSTEM="${SKIPPED_SYSTEM}${KEY}|"
               continue
             fi
 
             # If include_only is set, check if this var is in the list
             if [ -n "$INCLUDE_ONLY" ]; then
-              # Convert comma-separated list to grep pattern
               if ! echo ",$INCLUDE_ONLY," | grep -q ",$KEY,"; then
                 echo "  Skipping (not in include list): $KEY"
+                SKIPPED_FILTER="${SKIPPED_FILTER}${KEY}|"
                 continue
               fi
             fi
@@ -322,14 +362,19 @@ jobs:
             # Skip empty values
             if [ -z "$VALUE" ] || [ "$VALUE" = "null" ] || [ "$VALUE" = '""' ]; then
               echo "  Skipping empty var: $KEY"
+              SKIPPED_EMPTY="${SKIPPED_EMPTY}${KEY}|"
               continue
             fi
 
             # Skip bindable vars (contain ${APP_ or ${_self.)
             if echo "$VALUE" | grep -qE '\$\{(APP_|_self\.)'; then
               echo "  Skipping bindable var: $KEY"
+              SKIPPED_BINDABLE="${SKIPPED_BINDABLE}${KEY}|"
               continue
             fi
+
+            # Check if this var is marked as SECRET in the app spec
+            IS_SECRET=$(yq -r ".services[0].envs[] | select(.key == \"$KEY\") | .type // \"\"" "$SPEC_PATH")
 
             # Substitute ${VAR} placeholders with environment values
             RESOLVED_VALUE="$VALUE"
@@ -349,17 +394,52 @@ jobs:
             # Skip if still has unresolved placeholders
             if echo "$RESOLVED_VALUE" | grep -q '\${'; then
               echo "  Skipping unresolved var: $KEY"
+              SKIPPED_UNRESOLVED="${SKIPPED_UNRESOLVED}${KEY}|"
               continue
             fi
 
+            # Get previous value for comparison
+            PREV_VALUE=$(get_prev_value "$KEY")
+            if [ -z "$PREV_VALUE" ]; then
+              PREV_VALUE="(not set)"
+            fi
+
+            # Track the update
             ENV_CONTENT="${ENV_CONTENT}${KEY}=${RESOLVED_VALUE}"$'\n'
             VAR_COUNT=$((VAR_COUNT + 1))
-            echo "  Added: $KEY"
+
+            # Store tracking info (using | as delimiter)
+            UPDATED_KEYS="${UPDATED_KEYS}${KEY}|"
+            if [ "$IS_SECRET" = "SECRET" ]; then
+              UPDATED_PREV="${UPDATED_PREV}***|"
+              UPDATED_NEW="${UPDATED_NEW}*** (secret)|"
+              UPDATED_SECRET="${UPDATED_SECRET}true|"
+              echo "  Added: $KEY (secret)"
+            else
+              # Escape pipe characters in values for safe storage
+              SAFE_PREV=$(echo "$PREV_VALUE" | tr '|' '_')
+              SAFE_NEW=$(echo "$RESOLVED_VALUE" | tr '|' '_')
+              UPDATED_PREV="${UPDATED_PREV}${SAFE_PREV}|"
+              UPDATED_NEW="${UPDATED_NEW}${SAFE_NEW}|"
+              UPDATED_SECRET="${UPDATED_SECRET}false|"
+              echo "  Added: $KEY"
+            fi
           done < <(yq -r '.services[0].envs[] | .key + "=" + (.value // "")' "$SPEC_PATH" 2>/dev/null)
+
+          # Generate summary header
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Environment Variables Update" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** $APP_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "**Component:** $COMPONENT_NAME" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$INCLUDE_ONLY" ]; then
+            echo "**Filter:** \`$INCLUDE_ONLY\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ $VAR_COUNT -eq 0 ]; then
             echo "::warning::No app-specific environment variables found to update."
-            echo "## No Environment Variables to Update" >> $GITHUB_STEP_SUMMARY
+            echo "### No Variables Updated" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             if [ -n "$INCLUDE_ONLY" ]; then
               echo "No variables matched the include filter: \`$INCLUDE_ONLY\`" >> $GITHUB_STEP_SUMMARY
@@ -367,49 +447,104 @@ jobs:
               echo "Check that the variable names are correct and exist in your app spec." >> $GITHUB_STEP_SUMMARY
             else
               echo "All variables in the app spec are either system vars or empty." >> $GITHUB_STEP_SUMMARY
-              echo "Add app-specific variables (DATABASE_URL, API keys, etc.) to your app spec." >> $GITHUB_STEP_SUMMARY
             fi
-            exit 0
+          else
+            echo ""
+            echo "Found $VAR_COUNT app-specific environment variable(s) to update."
+
+            # Write .env file to container
+            echo ""
+            echo "Writing .env file to container..."
+            echo "$ENV_CONTENT" > /tmp/env_content.txt
+            cat /tmp/env_content.txt | sandbox exec "$APP_ID" "$COMPONENT_NAME" "cat > /workspaces/app/.env"
+
+            # Create trigger file
+            sandbox exec "$APP_ID" "$COMPONENT_NAME" "touch /workspaces/app/.env_updated"
+
+            echo "Environment variables written to container"
+            echo "Trigger file created (.env_updated)"
+
+            # Generate Updated variables table
+            echo "### Updated ($VAR_COUNT variables)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Variable | Previous | New |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|----------|-----|" >> $GITHUB_STEP_SUMMARY
+
+            # Parse tracking arrays and output table rows
+            IFS='|' read -ra KEYS_ARR <<< "$UPDATED_KEYS"
+            IFS='|' read -ra PREV_ARR <<< "$UPDATED_PREV"
+            IFS='|' read -ra NEW_ARR <<< "$UPDATED_NEW"
+
+            for i in "${!KEYS_ARR[@]}"; do
+              if [ -n "${KEYS_ARR[$i]}" ]; then
+                # Truncate long values for display
+                PREV_DISPLAY="${PREV_ARR[$i]}"
+                NEW_DISPLAY="${NEW_ARR[$i]}"
+                if [ ${#PREV_DISPLAY} -gt 40 ]; then
+                  PREV_DISPLAY="${PREV_DISPLAY:0:37}..."
+                fi
+                if [ ${#NEW_DISPLAY} -gt 40 ]; then
+                  NEW_DISPLAY="${NEW_DISPLAY:0:37}..."
+                fi
+                echo "| \`${KEYS_ARR[$i]}\` | \`$PREV_DISPLAY\` | \`$NEW_DISPLAY\` |" >> $GITHUB_STEP_SUMMARY
+              fi
+            done
           fi
 
-          echo ""
-          echo "Found $VAR_COUNT app-specific environment variable(s) to update."
+          # Generate Skipped variables section (if any)
+          TOTAL_SKIPPED=0
+          for list in "$SKIPPED_SYSTEM" "$SKIPPED_EMPTY" "$SKIPPED_BINDABLE" "$SKIPPED_FILTER" "$SKIPPED_UNRESOLVED"; do
+            if [ -n "$list" ]; then
+              count=$(echo "$list" | tr -cd '|' | wc -c)
+              TOTAL_SKIPPED=$((TOTAL_SKIPPED + count))
+            fi
+          done
 
-          # Write .env file to container using do-app-sandbox
-          echo ""
-          echo "Writing .env file to container..."
+          if [ $TOTAL_SKIPPED -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details>" >> $GITHUB_STEP_SUMMARY
+            echo "<summary>Skipped ($TOTAL_SKIPPED variables)</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Variable | Reason |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
 
-          # Create a temporary file with the env content
-          echo "$ENV_CONTENT" > /tmp/env_content.txt
+            # Output skipped system vars
+            IFS='|' read -ra SYS_ARR <<< "$SKIPPED_SYSTEM"
+            for var in "${SYS_ARR[@]}"; do
+              [ -n "$var" ] && echo "| \`$var\` | System variable |" >> $GITHUB_STEP_SUMMARY
+            done
 
-          # Use sandbox to write the file - pipe content through cat
-          cat /tmp/env_content.txt | sandbox exec "$APP_ID" "$COMPONENT_NAME" "cat > /workspaces/app/.env"
+            # Output skipped empty vars
+            IFS='|' read -ra EMPTY_ARR <<< "$SKIPPED_EMPTY"
+            for var in "${EMPTY_ARR[@]}"; do
+              [ -n "$var" ] && echo "| \`$var\` | Empty value |" >> $GITHUB_STEP_SUMMARY
+            done
 
-          # Create trigger file to signal dev startup script to restart
-          sandbox exec "$APP_ID" "$COMPONENT_NAME" "touch /workspaces/app/.env_updated"
+            # Output skipped bindable vars
+            IFS='|' read -ra BIND_ARR <<< "$SKIPPED_BINDABLE"
+            for var in "${BIND_ARR[@]}"; do
+              [ -n "$var" ] && echo "| \`$var\` | Bindable variable |" >> $GITHUB_STEP_SUMMARY
+            done
 
-          echo "✓ Environment variables written to container"
-          echo "✓ Trigger file created (.env_updated)"
+            # Output skipped filter vars
+            IFS='|' read -ra FILT_ARR <<< "$SKIPPED_FILTER"
+            for var in "${FILT_ARR[@]}"; do
+              [ -n "$var" ] && echo "| \`$var\` | Not in include filter |" >> $GITHUB_STEP_SUMMARY
+            done
 
-      - name: Output summary
-        run: |
-          APP_NAME="${{ steps.appinfo.outputs.app_name }}"
-          COMPONENT_NAME="${{ steps.appinfo.outputs.component_name }}"
-          INCLUDE_ONLY="${{ inputs.include_only_env_vars }}"
+            # Output skipped unresolved vars
+            IFS='|' read -ra UNRES_ARR <<< "$SKIPPED_UNRESOLVED"
+            for var in "${UNRES_ARR[@]}"; do
+              [ -n "$var" ] && echo "| \`$var\` | Unresolved placeholder |" >> $GITHUB_STEP_SUMMARY
+            done
 
-          echo "## Environment Variables Updated" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**App:** $APP_NAME" >> $GITHUB_STEP_SUMMARY
-          echo "**Component:** $COMPONENT_NAME" >> $GITHUB_STEP_SUMMARY
-          if [ -n "$INCLUDE_ONLY" ]; then
-            echo "**Filter:** Only updated: \`$INCLUDE_ONLY\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The dev server will restart automatically to load the new environment variables." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### What Happened" >> $GITHUB_STEP_SUMMARY
-          echo "1. Extracted app-specific env vars from \`${{ inputs.app_spec_path }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "2. Substituted GitHub secrets" >> $GITHUB_STEP_SUMMARY
-          echo "3. Wrote \`.env\` file to \`/workspaces/app/.env\`" >> $GITHUB_STEP_SUMMARY
-          echo "4. Created \`.env_updated\` trigger file" >> $GITHUB_STEP_SUMMARY
-          echo "5. Dev server will detect the trigger and restart (~10 seconds)" >> $GITHUB_STEP_SUMMARY
+
+          # Footer
+          if [ $VAR_COUNT -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "---" >> $GITHUB_STEP_SUMMARY
+            echo "The dev server will restart automatically to load the new environment variables (~10 seconds)." >> $GITHUB_STEP_SUMMARY
+          fi
