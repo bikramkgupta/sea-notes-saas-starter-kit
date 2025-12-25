@@ -14,6 +14,9 @@
 
 set -euo pipefail
 
+# Change to application directory (where package.json is located)
+cd /workspaces/app/application || exit 1
+
 echo "legacy-peer-deps=true" > .npmrc
 
 DEPS_HASH_FILE=".deps_hash"
