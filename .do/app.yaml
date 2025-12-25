@@ -34,7 +34,7 @@ services:
     # This ensures shell access even if your app crashes.
     health_check:
       http_path: /dev_health
-      initial_delay_seconds: 10
+      initial_delay_seconds: 120
       period_seconds: 10
       timeout_seconds: 5
       success_threshold: 1
