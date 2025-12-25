@@ -32,9 +32,12 @@ STORED_HASH=$(cat "$HASH_FILE" 2>/dev/null || echo "")
 
 install_deps() {
     echo "Installing dependencies..."
+    # Remove package-lock.json to avoid conflicts but keep node_modules for speed
+    rm -f package-lock.json
+
     if ! npm install; then
         echo "Standard install failed, trying hard rebuild..."
-        rm -rf node_modules package-lock.json
+        rm -rf node_modules
         npm install
     fi
     echo "$CURRENT_HASH" > "$HASH_FILE"
