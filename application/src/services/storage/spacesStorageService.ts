@@ -3,7 +3,6 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
-  ListObjectsV2Command,
   CreateBucketCommand,
   HeadBucketCommand,
 } from '@aws-sdk/client-s3';
@@ -65,12 +64,16 @@ export class SpacesStorageService extends StorageService {
       await this.client.send(new CreateBucketCommand({ Bucket: this.bucketName }));
       console.log(`Bucket "${this.bucketName}" created successfully.`);
       return true;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Bucket already exists - that's fine
-      if (error.name === 'BucketAlreadyOwnedByYou' || error.name === 'BucketAlreadyExists') {
-        return true;
+      if (error && typeof error === 'object' && 'name' in error) {
+        const errorName = error.name as string;
+        if (errorName === 'BucketAlreadyOwnedByYou' || errorName === 'BucketAlreadyExists') {
+          return true;
+        }
       }
-      console.error('Failed to create bucket:', error.message);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to create bucket:', errorMessage);
       return false;
     }
   }
@@ -192,8 +195,9 @@ export class SpacesStorageService extends StorageService {
       // Try to access the bucket
       await this.client.send(new HeadBucketCommand({ Bucket: this.bucketName }));
       return true;
-    } catch (error: any) {
-      const bucketNotFound = error.name === 'NoSuchBucket' || error.name === 'NotFound';
+    } catch (error: unknown) {
+      const errorName = error && typeof error === 'object' && 'name' in error ? (error.name as string) : '';
+      const bucketNotFound = errorName === 'NoSuchBucket' || errorName === 'NotFound';
 
       // Only auto-create for local MinIO/RustFS endpoints
       if (bucketNotFound && this.isLocalMinIOEndpoint()) {
