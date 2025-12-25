@@ -12,10 +12,6 @@ on:
           - deploy
           - delete
         default: 'deploy'
-      branch:
-        description: 'Branch to checkout (where app spec exists). Defaults to the branch that triggered the workflow.'
-        required: false
-        default: ''
       app_spec_path:
         description: 'Path to app spec file'
         required: false
@@ -104,8 +100,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch != '' && inputs.branch || github.ref_name }}
 
       - name: Validate app spec exists
         run: |
@@ -160,8 +154,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.branch != '' && inputs.branch || github.ref_name }}
 
       - name: Install yq
         run: |
