@@ -53,9 +53,9 @@ services:
         scope: RUN_TIME
         type: SECRET
 
-      # Branch to sync (seanotes-testing)
+      # Branch to sync (testing)
       - key: GITHUB_BRANCH
-        value: "seanotes-testing"
+        value: "testing"
         scope: RUN_TIME
 
       # === Startup Command ===
