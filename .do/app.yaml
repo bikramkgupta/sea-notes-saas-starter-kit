@@ -1,0 +1,191 @@
+#
+# DigitalOcean App Platform - Hot Reload Dev Environment
+# Pre-built Node.js Image (Deploys in ~1 minute!)
+#
+# Usage:
+#   gh workflow run deploy-app.yml -f action=deploy
+#
+# After deployment, configure your app in the DO Console:
+#   - Set GITHUB_REPO_URL to your repository (or keep ${GITHUB_REPO_URL} if deployed via GitHub Actions)
+#   - Set GITHUB_TOKEN if private repo (as secret)
+#   - Set DEV_START_COMMAND or add dev_startup.sh to your repo
+#
+
+name: seanotes-testing-dev
+region: syd
+
+services:
+  - name: dev-workspace
+    image:
+      registry_type: GHCR
+      registry: bikramkgupta
+      repository: hot-reload-node
+      tag: latest
+
+    instance_count: 1
+    instance_size_slug: apps-s-1vcpu-2gb
+    http_port: 8080
+
+    # Internal port for dev-health-server (keeps container alive for debugging)
+    internal_ports:
+      - 9090
+
+    # CRITICAL: Health check on port 9090, NOT 8080
+    # This ensures shell access even if your app crashes.
+    health_check:
+      http_path: /dev_health
+      initial_delay_seconds: 10
+      period_seconds: 10
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+      port: 9090
+
+    envs:
+      # === Your Repository ===
+      - key: GITHUB_REPO_URL
+        value: "${GITHUB_REPO_URL}"
+        scope: RUN_TIME
+
+      # For private repos, add your token here (or use envsubst)
+      - key: GITHUB_TOKEN
+        value: "${APP_GITHUB_TOKEN}"
+        scope: RUN_TIME
+        type: SECRET
+
+      # Branch to sync (seanotes-testing)
+      - key: GITHUB_BRANCH
+        value: "seanotes-testing"
+        scope: RUN_TIME
+
+      # === Startup Command ===
+      # Uses dev_startup.sh which handles npm install automatically
+      # App is in application/ subfolder
+      - key: DEV_START_COMMAND
+        value: "bash application/dev_startup.sh"
+        scope: RUN_TIME
+
+      # === Sync Settings ===
+      - key: GITHUB_SYNC_INTERVAL
+        value: "15"
+        scope: RUN_TIME
+      - key: WORKSPACE_PATH
+        value: "/workspaces/app"
+        scope: RUN_TIME
+
+      # === Deploy Jobs ===
+      # Leave PRE_DEPLOY empty - use dev_startup.sh for npm install
+      # PRE_DEPLOY runs in strict mode and kills container on failure
+      - key: PRE_DEPLOY_COMMAND
+        value: ""
+        scope: RUN_TIME
+
+      # === Bindable variables (convenience) ===
+      - key: BASE_URL
+        value: "${APP_URL}"
+        scope: RUN_TIME
+      - key: APP_DOMAIN
+        value: "${APP_DOMAIN}"
+        scope: RUN_TIME
+      - key: APP_ID
+        value: "${APP_ID}"
+        scope: RUN_TIME
+      - key: COMMIT_HASH
+        value: "${_self.COMMIT_HASH}"
+        scope: RUN_TIME
+      - key: PUBLIC_URL
+        value: "${_self.PUBLIC_URL}"
+        scope: RUN_TIME
+
+      # === Database Configuration ===
+      - key: DATABASE_PROVIDER
+        value: "${DATABASE_PROVIDER}"
+        scope: RUN_TIME
+      - key: DATABASE_URL
+        value: "${DATABASE_URL}"
+        scope: RUN_TIME
+        type: SECRET
+
+      # === Authentication ===
+      - key: AUTH_SECRET
+        value: "${AUTH_SECRET}"
+        scope: RUN_TIME
+        type: SECRET
+
+      # === File Storage (DigitalOcean Spaces) ===
+      - key: STORAGE_PROVIDER
+        value: "${STORAGE_PROVIDER}"
+        scope: RUN_TIME
+      - key: SPACES_KEY_ID
+        value: "${AWS_ACCESS_KEY_ID}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_SECRET_KEY
+        value: "${AWS_SECRET_ACCESS_KEY}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: SPACES_BUCKET_NAME
+        value: "${S3_BUCKET}"
+        scope: RUN_TIME
+      - key: SPACES_REGION
+        value: "${AWS_REGION}"
+        scope: RUN_TIME
+
+      # === Email Configuration (Resend) ===
+      - key: EMAIL_PROVIDER
+        value: "${EMAIL_PROVIDER}"
+        scope: RUN_TIME
+      - key: RESEND_API_KEY
+        value: "${RESEND_API_KEY}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: RESEND_EMAIL_SENDER
+        value: "${RESEND_EMAIL_SENDER}"
+        scope: RUN_TIME
+      - key: ENABLE_EMAIL_INTEGRATION
+        value: "${ENABLE_EMAIL_INTEGRATION}"
+        scope: RUN_TIME
+
+      # === Billing Configuration (Stripe) ===
+      - key: BILLING_PROVIDER
+        value: "${BILLING_PROVIDER}"
+        scope: RUN_TIME
+      - key: STRIPE_SECRET_KEY
+        value: "${STRIPE_SECRET_KEY}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: STRIPE_WEBHOOK_SECRET
+        value: "${STRIPE_WEBHOOK_SECRET}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: STRIPE_FREE_PRICE_ID
+        value: "${STRIPE_FREE_PRICE_ID}"
+        scope: RUN_TIME
+      - key: STRIPE_PRO_PRICE_ID
+        value: "${STRIPE_PRO_PRICE_ID}"
+        scope: RUN_TIME
+      - key: STRIPE_PRO_GIFT_PRICE_ID
+        value: "${STRIPE_PRO_GIFT_PRICE_ID}"
+        scope: RUN_TIME
+      - key: STRIPE_PORTAL_CONFIG_ID
+        value: "${STRIPE_PORTAL_CONFIG_ID}"
+        scope: RUN_TIME
+
+      # === Application Configuration ===
+      - key: INVOICE_PROVIDER
+        value: "${INVOICE_PROVIDER}"
+        scope: RUN_TIME
+
+      # === AI Configuration (DigitalOcean Inference API) ===
+      - key: DO_INFERENCE_API_KEY
+        value: "${DO_INFERENCE_API_KEY}"
+        scope: RUN_TIME
+        type: SECRET
+      - key: NEXT_PUBLIC_DIGITALOCEAN_GRADIENTAI_ENABLED
+        value: "${NEXT_PUBLIC_DIGITALOCEAN_GRADIENTAI_ENABLED}"
+        scope: RUN_TIME
+
+alerts:
+  - rule: DEPLOYMENT_FAILED
+  - rule: DOMAIN_FAILED
+

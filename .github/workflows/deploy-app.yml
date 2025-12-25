@@ -1,0 +1,189 @@
+name: Deploy to DigitalOcean App Platform
+
+# Manual trigger only - no automatic deployments
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - deploy
+          - delete
+        default: 'deploy'
+      app_spec_path:
+        description: 'Path to app spec file'
+        required: false
+        default: '.do/app.yaml'
+
+# Secrets available for ${VAR} substitution in app specs
+# Add your secrets to GitHub Secrets, use ${SECRET_NAME} in your app spec
+env:
+  # GitHub (for private repos)
+  APP_GITHUB_TOKEN: ${{ secrets.APP_GITHUB_TOKEN }}
+  # Auto-populate the repo URL used by the dev container
+  GITHUB_REPO_URL: https://github.com/${{ github.repository }}
+  # Database
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  DATABASE_PROVIDER: ${{ secrets.DATABASE_PROVIDER }}
+  REDIS_URL: ${{ secrets.REDIS_URL }}
+  MONGODB_URI: ${{ secrets.MONGODB_URI }}
+  # Auth
+  AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
+  NEXTAUTH_SECRET: ${{ secrets.NEXTAUTH_SECRET }}
+  NEXTAUTH_URL: ${{ secrets.NEXTAUTH_URL }}
+  JWT_SECRET: ${{ secrets.JWT_SECRET }}
+  SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+  # API Keys
+  API_KEY: ${{ secrets.API_KEY }}
+  API_SECRET: ${{ secrets.API_SECRET }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  DO_INFERENCE_API_KEY: ${{ secrets.DO_INFERENCE_API_KEY }}
+  INVOICE_PROVIDER: ${{ secrets.INVOICE_PROVIDER }}
+  NEXT_PUBLIC_DIGITALOCEAN_GRADIENTAI_ENABLED: ${{ secrets.NEXT_PUBLIC_DIGITALOCEAN_GRADIENTAI_ENABLED }}
+  # OAuth
+  GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+  GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+  GITHUB_CLIENT_ID: ${{ secrets.GITHUB_CLIENT_ID }}
+  GITHUB_CLIENT_SECRET: ${{ secrets.GITHUB_CLIENT_SECRET }}
+  # Payment
+  STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+  STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+  STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+  STRIPE_FREE_PRICE_ID: ${{ secrets.STRIPE_FREE_PRICE_ID }}
+  STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
+  STRIPE_PRO_GIFT_PRICE_ID: ${{ secrets.STRIPE_PRO_GIFT_PRICE_ID }}
+  STRIPE_PORTAL_CONFIG_ID: ${{ secrets.STRIPE_PORTAL_CONFIG_ID }}
+  BILLING_PROVIDER: ${{ secrets.BILLING_PROVIDER }}
+  # Cloud
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  S3_BUCKET: ${{ secrets.S3_BUCKET }}
+  STORAGE_PROVIDER: ${{ secrets.STORAGE_PROVIDER }}
+  # Email
+  SMTP_HOST: ${{ secrets.SMTP_HOST }}
+  SMTP_USER: ${{ secrets.SMTP_USER }}
+  SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+  SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
+  RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+  RESEND_EMAIL_SENDER: ${{ secrets.RESEND_EMAIL_SENDER }}
+  MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+  EMAIL_PROVIDER: ${{ secrets.EMAIL_PROVIDER }}
+  ENABLE_EMAIL_INTEGRATION: ${{ secrets.ENABLE_EMAIL_INTEGRATION }}
+  # Analytics/Monitoring
+  SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+  POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
+  SEGMENT_WRITE_KEY: ${{ secrets.SEGMENT_WRITE_KEY }}
+  # Custom secrets (add up to 10)
+  CUSTOM_SECRET_1: ${{ secrets.CUSTOM_SECRET_1 }}
+  CUSTOM_SECRET_2: ${{ secrets.CUSTOM_SECRET_2 }}
+  CUSTOM_SECRET_3: ${{ secrets.CUSTOM_SECRET_3 }}
+  CUSTOM_SECRET_4: ${{ secrets.CUSTOM_SECRET_4 }}
+  CUSTOM_SECRET_5: ${{ secrets.CUSTOM_SECRET_5 }}
+  CUSTOM_SECRET_6: ${{ secrets.CUSTOM_SECRET_6 }}
+  CUSTOM_SECRET_7: ${{ secrets.CUSTOM_SECRET_7 }}
+  CUSTOM_SECRET_8: ${{ secrets.CUSTOM_SECRET_8 }}
+  CUSTOM_SECRET_9: ${{ secrets.CUSTOM_SECRET_9 }}
+  CUSTOM_SECRET_10: ${{ secrets.CUSTOM_SECRET_10 }}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: ${{ inputs.action == 'deploy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate app spec exists
+        run: |
+          if [ ! -f "${{ inputs.app_spec_path }}" ]; then
+            echo "Error: App spec not found at ${{ inputs.app_spec_path }}"
+            echo ""
+            echo "Create an app spec file. See app-specs/ for examples."
+            exit 1
+          fi
+          echo "Using app spec: ${{ inputs.app_spec_path }}"
+          cat "${{ inputs.app_spec_path }}"
+
+      - name: Deploy to DigitalOcean
+        uses: digitalocean/app_action/deploy@v2
+        id: deploy
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          app_spec_location: ${{ inputs.app_spec_path }}
+          print_build_logs: true
+          print_deploy_logs: true
+
+      - name: Output deployment info
+        run: |
+          echo "## Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          APP_OUTPUT='${{ steps.deploy.outputs.app }}'
+          APP_NAME=$(echo "$APP_OUTPUT" | jq -r '.spec.name // empty')
+          APP_URL=$(echo "$APP_OUTPUT" | jq -r '.live_url // empty')
+          APP_ID=$(echo "$APP_OUTPUT" | jq -r '.id // empty')
+
+          echo "**App Name:** $APP_NAME" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$APP_URL" ]; then
+            echo "**Live URL:** $APP_URL" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ -n "$APP_ID" ]; then
+            echo "**App ID:** \`$APP_ID\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Debug Commands" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "# View logs" >> $GITHUB_STEP_SUMMARY
+          echo "doctl apps logs $APP_ID" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# SSH into container" >> $GITHUB_STEP_SUMMARY
+          echo "doctl apps console $APP_ID" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+  delete:
+    if: ${{ inputs.action == 'delete' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Get app name from spec
+        id: appname
+        run: |
+          SPEC_PATH="${{ inputs.app_spec_path }}"
+          if [ -f "$SPEC_PATH" ]; then
+            APP_NAME=$(yq '.name' "$SPEC_PATH" 2>/dev/null || echo "")
+          fi
+          if [ -z "$APP_NAME" ] || [ "$APP_NAME" = "null" ]; then
+            echo "Error: Could not read app name from $SPEC_PATH"
+            exit 1
+          fi
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+          echo "Deleting app: $APP_NAME"
+
+      - name: Delete app from DigitalOcean
+        uses: digitalocean/app_action/delete@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          app_name: ${{ steps.appname.outputs.app_name }}
+          ignore_not_found: true
+
+      - name: Output deletion info
+        run: |
+          echo "## App Deleted" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App Name:** ${{ steps.appname.outputs.app_name }}" >> $GITHUB_STEP_SUMMARY
+
