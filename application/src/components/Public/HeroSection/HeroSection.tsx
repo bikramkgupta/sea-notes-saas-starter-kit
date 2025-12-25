@@ -1,5 +1,6 @@
 import React from 'react';
 import { Typography, Box, Container } from '@mui/material';
+import dayjs from 'dayjs';
 import TerminalMockup from 'components/Public/TerminalMockup/TerminalMockup';
 import CTAButtons from 'components/Public/CTAButtons/CTAButtons';
 import { DIMENSIONS } from 'constants/landing';
@@ -56,7 +57,7 @@ const HeroSection = () => {
                 width: '100%'
               }}
             >
-              Build Your SaaS Faster Than Ever [Hot Reload Test - Code Change - UPDATED]
+              Build Your SaaS Faster Than Ever [Date: {dayjs().format('YYYY-MM-DD')}]
             </Typography>
             <Typography 
               variant="h6" 
