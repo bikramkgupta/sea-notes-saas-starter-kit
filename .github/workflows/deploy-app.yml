@@ -11,11 +11,16 @@ on:
         options:
           - deploy
           - delete
+          - env-vars
         default: 'deploy'
       app_spec_path:
         description: 'Path to app spec file'
         required: false
         default: '.do/app.yaml'
+      include_only_env_vars:
+        description: 'Comma-separated list of env vars to update (leave empty to update all)'
+        required: false
+        default: ''
 
 # Secrets available for ${VAR} substitution in app specs
 # Add your secrets to GitHub Secrets, use ${SECRET_NAME} in your app spec
@@ -26,7 +31,6 @@ env:
   GITHUB_REPO_URL: https://github.com/${{ github.repository }}
   # Database
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
-  DATABASE_PROVIDER: ${{ secrets.DATABASE_PROVIDER }}
   REDIS_URL: ${{ secrets.REDIS_URL }}
   MONGODB_URI: ${{ secrets.MONGODB_URI }}
   # Auth
@@ -41,9 +45,6 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-  DO_INFERENCE_API_KEY: ${{ secrets.DO_INFERENCE_API_KEY }}
-  INVOICE_PROVIDER: ${{ secrets.INVOICE_PROVIDER }}
-  NEXT_PUBLIC_DIGITALOCEAN_GRADIENTAI_ENABLED: ${{ secrets.NEXT_PUBLIC_DIGITALOCEAN_GRADIENTAI_ENABLED }}
   # OAuth
   GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
   GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
@@ -53,27 +54,18 @@ env:
   STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
   STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
   STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
-  STRIPE_FREE_PRICE_ID: ${{ secrets.STRIPE_FREE_PRICE_ID }}
-  STRIPE_PRO_PRICE_ID: ${{ secrets.STRIPE_PRO_PRICE_ID }}
-  STRIPE_PRO_GIFT_PRICE_ID: ${{ secrets.STRIPE_PRO_GIFT_PRICE_ID }}
-  STRIPE_PORTAL_CONFIG_ID: ${{ secrets.STRIPE_PORTAL_CONFIG_ID }}
-  BILLING_PROVIDER: ${{ secrets.BILLING_PROVIDER }}
   # Cloud
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ secrets.AWS_REGION }}
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
-  STORAGE_PROVIDER: ${{ secrets.STORAGE_PROVIDER }}
   # Email
   SMTP_HOST: ${{ secrets.SMTP_HOST }}
   SMTP_USER: ${{ secrets.SMTP_USER }}
   SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
   SENDGRID_API_KEY: ${{ secrets.SENDGRID_API_KEY }}
   RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-  RESEND_EMAIL_SENDER: ${{ secrets.RESEND_EMAIL_SENDER }}
   MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
-  EMAIL_PROVIDER: ${{ secrets.EMAIL_PROVIDER }}
-  ENABLE_EMAIL_INTEGRATION: ${{ secrets.ENABLE_EMAIL_INTEGRATION }}
   # Analytics/Monitoring
   SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}
@@ -187,3 +179,237 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**App Name:** ${{ steps.appname.outputs.app_name }}" >> $GITHUB_STEP_SUMMARY
 
+  update-env-vars:
+    if: ${{ inputs.action == 'env-vars' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          # Install yq for YAML parsing
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+          # Install doctl
+          DOCTL_VERSION=$(curl -s https://api.github.com/repos/digitalocean/doctl/releases/latest | jq -r .tag_name | sed 's/^v//')
+          curl -sL "https://github.com/digitalocean/doctl/releases/download/v${DOCTL_VERSION}/doctl-${DOCTL_VERSION}-linux-amd64.tar.gz" | tar -xzv
+          sudo mv doctl /usr/local/bin/
+
+          # Install do-app-sandbox
+          pip install do-app-sandbox
+
+      - name: Authenticate doctl
+        run: doctl auth init -t ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Validate app spec exists
+        run: |
+          if [ ! -f "${{ inputs.app_spec_path }}" ]; then
+            echo "::error::App spec not found at ${{ inputs.app_spec_path }}"
+            exit 1
+          fi
+
+      - name: Get app info from spec
+        id: appinfo
+        run: |
+          SPEC_PATH="${{ inputs.app_spec_path }}"
+
+          # Get app name
+          APP_NAME=$(yq '.name' "$SPEC_PATH" 2>/dev/null || echo "")
+          if [ -z "$APP_NAME" ] || [ "$APP_NAME" = "null" ]; then
+            echo "::error::Could not read app name from $SPEC_PATH"
+            exit 1
+          fi
+          echo "app_name=$APP_NAME" >> $GITHUB_OUTPUT
+
+          # Get component name (first service)
+          COMPONENT_NAME=$(yq '.services[0].name' "$SPEC_PATH" 2>/dev/null || echo "")
+          if [ -z "$COMPONENT_NAME" ] || [ "$COMPONENT_NAME" = "null" ]; then
+            echo "::error::Could not read component name from $SPEC_PATH"
+            exit 1
+          fi
+          echo "component_name=$COMPONENT_NAME" >> $GITHUB_OUTPUT
+
+          echo "App: $APP_NAME, Component: $COMPONENT_NAME"
+
+      - name: Get app ID from DigitalOcean
+        id: appid
+        run: |
+          APP_NAME="${{ steps.appinfo.outputs.app_name }}"
+
+          # Get app ID by name
+          APP_ID=$(doctl apps list -o json | jq -r ".[] | select(.spec.name == \"$APP_NAME\") | .id" | head -1)
+
+          if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
+            echo "::error::App '$APP_NAME' not found. Run 'deploy' action first."
+            echo "## Error: App Not Found" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "App **$APP_NAME** was not found on DigitalOcean." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Run the workflow with **action: deploy** first to create the app." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "app_id=$APP_ID" >> $GITHUB_OUTPUT
+          echo "Found app ID: $APP_ID"
+
+      - name: Check app health
+        run: |
+          APP_ID="${{ steps.appid.outputs.app_id }}"
+
+          # Get deployment status
+          PHASE=$(doctl apps get "$APP_ID" -o json | jq -r '.[0].active_deployment.phase // "UNKNOWN"')
+
+          if [ "$PHASE" != "ACTIVE" ]; then
+            echo "::error::App is not healthy (phase: $PHASE). Check logs or redeploy."
+            echo "## Error: App Not Healthy" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "App deployment phase: **$PHASE**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The app must be in ACTIVE state to update env vars." >> $GITHUB_STEP_SUMMARY
+            echo "Check the app logs or run a fresh deploy." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
+          echo "App is healthy (phase: $PHASE)"
+
+      - name: Extract and write env vars
+        run: |
+          SPEC_PATH="${{ inputs.app_spec_path }}"
+          APP_ID="${{ steps.appid.outputs.app_id }}"
+          COMPONENT_NAME="${{ steps.appinfo.outputs.component_name }}"
+          INCLUDE_ONLY="${{ inputs.include_only_env_vars }}"
+
+          # System vars to exclude (infrastructure/platform vars)
+          EXCLUDE_VARS="GITHUB_REPO_URL|GITHUB_TOKEN|GITHUB_BRANCH|GITHUB_SYNC_INTERVAL|WORKSPACE_PATH|DEV_START_COMMAND|APP_DIR|PRE_DEPLOY_COMMAND|PRE_DEPLOY_TIMEOUT|POST_DEPLOY_COMMAND|POST_DEPLOY_TIMEOUT|BASE_URL|APP_URL|APP_DOMAIN|APP_ID|COMMIT_HASH|PUBLIC_URL|ENABLE_DEV_HEALTH|DEV_HEALTH_PORT|WELCOME_PAGE_PORT|GITHUB_REPO_FOLDER"
+
+          # Extract env vars from spec, filter system vars, substitute secrets
+          echo "Extracting environment variables from $SPEC_PATH..."
+
+          # If include_only is set, show which vars will be updated
+          if [ -n "$INCLUDE_ONLY" ]; then
+            echo "Filtering to only include: $INCLUDE_ONLY"
+          else
+            echo "Updating all app-specific environment variables"
+          fi
+          echo ""
+
+          # Create .env content
+          ENV_CONTENT=""
+          VAR_COUNT=0
+
+          # Read each env var from the spec
+          while IFS= read -r line; do
+            KEY=$(echo "$line" | cut -d'=' -f1)
+            VALUE=$(echo "$line" | cut -d'=' -f2-)
+
+            # Skip system vars
+            if echo "$KEY" | grep -qE "^($EXCLUDE_VARS)$"; then
+              echo "  Skipping system var: $KEY"
+              continue
+            fi
+
+            # If include_only is set, check if this var is in the list
+            if [ -n "$INCLUDE_ONLY" ]; then
+              # Convert comma-separated list to grep pattern
+              if ! echo ",$INCLUDE_ONLY," | grep -q ",$KEY,"; then
+                echo "  Skipping (not in include list): $KEY"
+                continue
+              fi
+            fi
+
+            # Skip empty values
+            if [ -z "$VALUE" ] || [ "$VALUE" = "null" ] || [ "$VALUE" = '""' ]; then
+              echo "  Skipping empty var: $KEY"
+              continue
+            fi
+
+            # Skip bindable vars (contain ${APP_ or ${_self.)
+            if echo "$VALUE" | grep -qE '\$\{(APP_|_self\.)'; then
+              echo "  Skipping bindable var: $KEY"
+              continue
+            fi
+
+            # Substitute ${VAR} placeholders with environment values
+            RESOLVED_VALUE="$VALUE"
+            while echo "$RESOLVED_VALUE" | grep -q '\${[^}]*}'; do
+              PLACEHOLDER=$(echo "$RESOLVED_VALUE" | grep -o '\${[^}]*}' | head -1)
+              VAR_NAME=$(echo "$PLACEHOLDER" | sed 's/\${//;s/}//')
+              VAR_VALUE="${!VAR_NAME:-}"
+
+              if [ -n "$VAR_VALUE" ]; then
+                RESOLVED_VALUE="${RESOLVED_VALUE//$PLACEHOLDER/$VAR_VALUE}"
+              else
+                echo "  Warning: No value for $VAR_NAME in $KEY"
+                break
+              fi
+            done
+
+            # Skip if still has unresolved placeholders
+            if echo "$RESOLVED_VALUE" | grep -q '\${'; then
+              echo "  Skipping unresolved var: $KEY"
+              continue
+            fi
+
+            ENV_CONTENT="${ENV_CONTENT}${KEY}=${RESOLVED_VALUE}"$'\n'
+            VAR_COUNT=$((VAR_COUNT + 1))
+            echo "  Added: $KEY"
+          done < <(yq -r '.services[0].envs[] | .key + "=" + (.value // "")' "$SPEC_PATH" 2>/dev/null)
+
+          if [ $VAR_COUNT -eq 0 ]; then
+            echo "::warning::No app-specific environment variables found to update."
+            echo "## No Environment Variables to Update" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            if [ -n "$INCLUDE_ONLY" ]; then
+              echo "No variables matched the include filter: \`$INCLUDE_ONLY\`" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "Check that the variable names are correct and exist in your app spec." >> $GITHUB_STEP_SUMMARY
+            else
+              echo "All variables in the app spec are either system vars or empty." >> $GITHUB_STEP_SUMMARY
+              echo "Add app-specific variables (DATABASE_URL, API keys, etc.) to your app spec." >> $GITHUB_STEP_SUMMARY
+            fi
+            exit 0
+          fi
+
+          echo ""
+          echo "Found $VAR_COUNT app-specific environment variable(s) to update."
+
+          # Write .env file to container using do-app-sandbox
+          echo ""
+          echo "Writing .env file to container..."
+
+          # Create a temporary file with the env content
+          echo "$ENV_CONTENT" > /tmp/env_content.txt
+
+          # Use sandbox to write the file - pipe content through cat
+          cat /tmp/env_content.txt | sandbox exec "$APP_ID" "$COMPONENT_NAME" "cat > /workspaces/app/.env"
+
+          # Create trigger file to signal dev startup script to restart
+          sandbox exec "$APP_ID" "$COMPONENT_NAME" "touch /workspaces/app/.env_updated"
+
+          echo "✓ Environment variables written to container"
+          echo "✓ Trigger file created (.env_updated)"
+
+      - name: Output summary
+        run: |
+          APP_NAME="${{ steps.appinfo.outputs.app_name }}"
+          COMPONENT_NAME="${{ steps.appinfo.outputs.component_name }}"
+          INCLUDE_ONLY="${{ inputs.include_only_env_vars }}"
+
+          echo "## Environment Variables Updated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**App:** $APP_NAME" >> $GITHUB_STEP_SUMMARY
+          echo "**Component:** $COMPONENT_NAME" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$INCLUDE_ONLY" ]; then
+            echo "**Filter:** Only updated: \`$INCLUDE_ONLY\`" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The dev server will restart automatically to load the new environment variables." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### What Happened" >> $GITHUB_STEP_SUMMARY
+          echo "1. Extracted app-specific env vars from \`${{ inputs.app_spec_path }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Substituted GitHub secrets" >> $GITHUB_STEP_SUMMARY
+          echo "3. Wrote \`.env\` file to \`/workspaces/app/.env\`" >> $GITHUB_STEP_SUMMARY
+          echo "4. Created \`.env_updated\` trigger file" >> $GITHUB_STEP_SUMMARY
+          echo "5. Dev server will detect the trigger and restart (~10 seconds)" >> $GITHUB_STEP_SUMMARY
